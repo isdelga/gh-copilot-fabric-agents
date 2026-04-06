@@ -1,0 +1,11 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Agent-generated outputs
+cleaning_runs/
+semantic_models/
+synthetic_data/
