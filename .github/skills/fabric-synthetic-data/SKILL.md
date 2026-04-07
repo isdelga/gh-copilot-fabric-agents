@@ -69,7 +69,7 @@ Before generating data, the agent must gather:
 - For time-series facts, distribute dates across the full date range (not uniform — use a slight recent-bias if realistic)
 
 ### Realistic Values
-- **Names**: Use `faker` library with appropriate locale (`es_ES` for Spanish, `en_US` for international)
+- **Names**: For Spanish locale, generate peninsular Spanish names with two surnames (paterno + materno), e.g., "Antonio García López". Use common first names and surnames from Spain (not Latin American). Do NOT use `faker` for Spanish names — it generates Latin American names.
 - **Emails**: Derive from names: `firstname.lastname@domain.com`
 - **Spanish DNIs**: Generate valid DNIs using the mod-23 algorithm (8 digits + computed letter)
 - **Phone numbers**: Spanish format `+34 6XX XXX XXX` (mobile) or `+34 9XX XXX XXX` (landline)
@@ -121,12 +121,25 @@ df.to_parquet(f"{output_dir}/{table_name}.parquet", index=False, engine="pyarrow
 
 ## Upload Flow
 
-The upload to Fabric is a two-step process per table:
+The upload to Fabric is a two-step process per table. There are **two paths** depending on whether the lakehouse has schemas enabled.
 
-1. **Upload Parquet to OneLake `Files/`**: Use MCP `onelake_upload_file` or the script's `upload` command
-2. **Load as Delta table**: Use the script's `load-table` command which calls `POST /v1/workspaces/{id}/lakehouses/{id}/tables/{name}/load`
+### Standard path (schemas NOT enabled)
 
-This two-step process is required because the Load Table API reads from `Files/` (not `Tables/`).
+1. **Upload Parquet to OneLake `Files/`**: Use the script's `upload` command
+2. **Load as Delta table**: Use the script's `load-table` command
+
+### Schemas-enabled path (Load Table API fails)
+
+When a lakehouse has schemas enabled, the Load Table API returns an error. Use the notebook-based approach instead:
+
+1. **Upload Parquet to OneLake `Files/`**: Same `upload` command
+2. **Generate a load notebook**: Use `load-via-notebook` — creates a PySpark `.ipynb` that reads all Parquet files from `Files/synthetic_data/` and writes them as Delta tables via `spark.write`
+3. **Deploy the notebook**: Use `deploy-notebook` — uploads to Fabric with lakehouse binding
+4. **Run the notebook**: Use `run-notebook` — triggers execution on the Fabric Spark cluster
+5. **Poll status**: Use `status-notebook` — wait until completed or failed
+6. **Delete the notebook**: Use `delete-notebook` — clean up after successful run
+
+**How to detect schemas-enabled**: If `load-table` fails with an error mentioning schemas, switch to the notebook path. Do NOT improvise — use the script commands above.
 
 ## Script — fabric_synthetic_data.py
 
@@ -145,14 +158,47 @@ python scripts/fabric_synthetic_data.py upload <workspace_id> <lakehouse_id> <lo
 
 Uploads to `Files/synthetic_data/{remote_filename}` in the lakehouse.
 
-### Load a file as a Delta table
+### Load a file as a Delta table (standard path)
 
 ```bash
 python scripts/fabric_synthetic_data.py load-table <workspace_id> <lakehouse_id> <table_name> <relative_path>
 ```
 
-Calls the Load Table API with `mode: Overwrite`, `format: Parquet`, `pathType: File`.
-The `relative_path` is relative to the lakehouse root (e.g., `Files/synthetic_data/customers.parquet`).
+Calls the Load Table API. If this fails due to schemas being enabled, switch to the notebook path below.
+
+### Generate a load notebook (schemas-enabled path)
+
+```bash
+python scripts/fabric_synthetic_data.py load-via-notebook <workspace_id> <lakehouse_id> <parquet_dir> <output_notebook.ipynb>
+```
+
+Scans `<parquet_dir>` for `.parquet` files and generates a single PySpark notebook that loads all of them as Delta tables. The notebook includes lakehouse binding metadata.
+
+### Deploy a load notebook to Fabric
+
+```bash
+python scripts/fabric_synthetic_data.py deploy-notebook <workspace_id> <lakehouse_id> <notebook_name> <ipynb_path>
+```
+
+Uploads the notebook with lakehouse binding so `spark.write.saveAsTable()` works.
+
+### Run a notebook
+
+```bash
+python scripts/fabric_synthetic_data.py run-notebook <workspace_id> <notebook_id>
+```
+
+### Check notebook job status
+
+```bash
+python scripts/fabric_synthetic_data.py status-notebook <workspace_id> <notebook_id> <job_instance_id>
+```
+
+### Delete a notebook
+
+```bash
+python scripts/fabric_synthetic_data.py delete-notebook <workspace_id> <notebook_id>
+```
 
 ### List existing tables
 
@@ -168,7 +214,10 @@ python scripts/fabric_synthetic_data.py delete-table <workspace_id> <lakehouse_i
 
 ## Gotchas
 
-- **Upload then load — two steps.** You cannot write directly to `Tables/`. Upload Parquet to `Files/` first, then call Load Table to register it as Delta.
+- **Schemas-enabled lakehouses break the Load Table API.** If `load-table` fails, the lakehouse likely has schemas enabled. Switch to the notebook path: `load-via-notebook` → `deploy-notebook` → `run-notebook` → `status-notebook` → `delete-notebook`. Do NOT try to improvise or create notebooks manually — use the script commands.
+- **`TIMESTAMP_NTZ` is not supported by Fabric Delta.** Pandas `datetime64` columns get written to Parquet as `TIMESTAMP_NTZ` which Fabric rejects with `Columns of the specified data types are not supported`. The `load-via-notebook` script handles this automatically by casting `TIMESTAMP_NTZ` columns to `DATE` before writing. If generating data manually, use `.dt.date` to convert datetime to date objects before saving Parquet.
+- **`list-tables` and `load-table` both fail on schemas-enabled lakehouses.** The entire Lakehouse Tables REST API is unsupported. Use MCP `onelake_list_tables` for listing and the notebook path for loading.
+- **Upload then load — two steps.** You cannot write directly to `Tables/`. Upload Parquet to `Files/` first, then load as Delta.
 - **Load Table `relativePath` must start with `Files/`** and use the pattern `Files/path/to/file.parquet`. No leading slash.
 - **Table names must match `^[a-zA-Z_][a-zA-Z0-9_]{0,255}$`**. No spaces, no dashes, no special chars.
 - **`faker` locale for Spanish is `es_ES`**. Use `Faker('es_ES')` for Spanish names, addresses, etc.

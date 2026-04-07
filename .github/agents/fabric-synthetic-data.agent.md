@@ -106,11 +106,20 @@ If Option A, upload tables **in this order** (dimensions first, facts second):
 2. All other dimensions
 3. All fact tables
 
-For each table:
-1. `upload` command → sends Parquet to `Files/synthetic_data/{filename}`
-2. `load-table` command → registers as Delta table
+For each table, first run `upload` to send Parquet to `Files/synthetic_data/{filename}`.
 
-If any table fails, stop and report the error.
+Then try `load-table` for the first table. If it **succeeds**, continue with `load-table` for all remaining tables (standard path).
+
+If `load-table` **fails** (schemas-enabled lakehouse), switch to the notebook path for ALL tables:
+1. `load-via-notebook` → generates a single PySpark notebook that loads all uploaded Parquet files as Delta tables
+2. `deploy-notebook` → uploads the notebook to Fabric with lakehouse binding
+3. `run-notebook` → triggers execution
+4. `status-notebook` → poll until completed or failed
+5. `delete-notebook` → clean up the notebook after successful run
+
+Do NOT improvise or create notebooks manually. Use only the script commands documented in the skill.
+
+If any step fails, stop and report the error.
 
 ### Phase 6 — Verify & Cleanup
 
@@ -118,9 +127,8 @@ If any table fails, stop and report the error.
 
 After all tables are uploaded:
 
-1. **Verify**: Use the script's `list-tables` command to confirm all tables appear in the lakehouse.
-2. **Delete OneLake files** (optional): The Parquet files in `Files/synthetic_data/` are no longer needed once loaded as Delta tables. Offer to clean up.
-3. **Delete local files** (optional): Offer to remove the `./synthetic_data/` directory.
+1. **Verify**: Use MCP `onelake_list_tables` (params: `workspace-id`, `item-id`, `namespace: "dbo"`) to confirm all tables appear in the lakehouse. The script's `list-tables` command does NOT work on schemas-enabled lakehouses.
+2. **Cleanup** (optional): Ask the user **once** if they want to keep or delete the generated files (both the OneLake Parquet files in `Files/synthetic_data/` and the local files in `./synthetic_data/`). Do not ask two separate questions — one answer applies to both.
 
 ## Spanish Locale Rules
 
