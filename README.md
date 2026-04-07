@@ -2,6 +2,10 @@
 
 AI agents for Microsoft Fabric that automate data cleaning, semantic model creation, and synthetic data generation. Built as [VS Code Agent Skills](https://agentskills.io/) for use with GitHub Copilot in Agent mode.
 
+<img height="150" alt="image" src="https://github.com/user-attachments/assets/853f752b-2b20-487e-8136-03d8f95be967" /><img width="150" alt="image" src="https://github.com/user-attachments/assets/c02c67e2-bf47-401f-bfa1-4aaaadfb4cf0" />
+
+
+
 ## Agents
 
 ### Fabric Data Cleaner
