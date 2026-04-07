@@ -119,6 +119,38 @@ Use `pandas` + `pyarrow` for Parquet generation:
 df.to_parquet(f"{output_dir}/{table_name}.parquet", index=False, engine="pyarrow")
 ```
 
+## Dirty Data Generation (Optional)
+
+When requested, inject realistic data quality issues into the generated dataset. The user specifies a **dirt percentage** (e.g., 5% = 5% of rows per table are affected). Apply the following contamination types randomly across eligible columns:
+
+### Contamination Types
+
+| Type | Applies To | What It Does |
+|------|-----------|-------------|
+| **Null injection** | Any column | Replace value with `None` / `NaN` |
+| **Empty string** | String columns | Replace value with `""` |
+| **Whitespace-only** | String columns | Replace value with `"   "` (spaces) |
+| **Exact duplicate rows** | Any table | Duplicate a random row exactly |
+| **Near-duplicate rows** | Fact tables | Duplicate a row but change one non-key column |
+| **Invalid DNI** | DNI columns | Wrong checksum letter, missing letter, wrong format (e.g., `1234567X` instead of `12345678X`) |
+| **Invalid email** | Email columns | Missing `@`, missing domain, spaces (e.g., `juan garcia@`, `noarroba.com`, `juan @mail .com`) |
+| **Invalid phone** | Phone columns | Wrong digit count, invalid prefix (e.g., `+34 1234`, `612345`, `+33 612345678`) |
+| **Comma decimal** | Numeric columns stored as string | Replace `.` with `,` as decimal separator (e.g., `"1234,56"` instead of `1234.56`) |
+| **String in numeric** | Numeric columns stored as string | Replace value with non-numeric text (e.g., `"N/A"`, `"pending"`, `"-"`, `"#REF!"`) |
+| **Wrong date format** | Date columns stored as string | Mix formats: some `dd/MM/yyyy`, some `MM/dd/yyyy`, some `yyyy-MM-dd` |
+| **Future/past dates** | Date columns | Dates far in the future (2099) or before 1900 |
+| **Leading/trailing spaces** | String columns | Add spaces around values (e.g., `" Madrid "`) |
+| **Case inconsistency** | String columns | Random uppercase/lowercase (e.g., `"MADRID"`, `"madrid"`, `"Madrid"`) |
+
+### How to Apply Dirt
+
+1. Calculate the number of dirty rows: `dirty_count = int(len(df) * dirt_percentage / 100)`
+2. For each contamination type, randomly select a subset of rows and eligible columns
+3. Distribute contamination types roughly evenly — don't apply all dirt to one column
+4. Exact duplicate injection: append `int(dirty_count * 0.1)` duplicated rows to the table
+5. For numeric columns that need comma decimals or string contamination: convert the column to string type first, then inject the dirty values
+6. Apply dirt AFTER generating clean data — never corrupt the primary keys or foreign keys (that would break referential integrity)
+
 ## Upload Flow
 
 The upload to Fabric is a two-step process per table. There are **two paths** depending on whether the lakehouse has schemas enabled.

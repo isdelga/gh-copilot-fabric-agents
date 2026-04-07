@@ -58,7 +58,19 @@ Present the schema to the user as a clear table. Include the FK→PK mappings.
 
 **Wait for user confirmation.** The user may add/remove columns or change types.
 
-### Phase 3 — Generate Data
+### Phase 3 — Dirty Data Options
+
+> **Stop and ask the user.** Ask if they want dirty data injected.
+
+Ask the user:
+- Do you want to inject dirty data (data quality issues) into the dataset? This is useful for testing data cleaning pipelines.
+- If yes, what percentage of rows should be affected? Suggest 5% as default (range: 1-20%).
+
+If the user says yes, the generation phase will apply the contamination rules from the skill's "Dirty Data Generation" section. Dirt is applied after clean data generation — primary keys and foreign keys are never corrupted.
+
+If the user says no, skip dirt injection entirely.
+
+### Phase 4 — Generate Data
 
 > **Proceed automatically.** Generate all tables without pausing.
 
@@ -67,18 +79,19 @@ Using Python with `pandas`, `pyarrow`, and `faker`:
 1. Generate the **date dimension** first (if applicable) using `pandas.date_range()`
 2. Generate all **dimension tables** — each gets sequential integer PKs
 3. Generate all **fact tables** — sample FK values from the already-generated dimensions
-4. Save each table as Parquet to: `./synthetic_data/{LAKEHOUSE_NAME}/{YYYY-MM-DD_HHmmss}/{table_name}.parquet`
+4. If dirty data was requested in Phase 3, apply contamination using the rules from the skill (null injection, duplicates, invalid formats, etc.). Never corrupt PKs or FKs.
+5. Save each table as Parquet to: `./synthetic_data/{LAKEHOUSE_NAME}/{YYYY-MM-DD_HHmmss}/{table_name}.parquet`
 
 Use the generation rules from the skill:
 - Sequential integer PKs
-- `faker` with correct locale for names/emails/phones
+- Peninsular Spanish names with two surnames if locale is Spanish
 - Valid Spanish DNIs (mod-23 algorithm) if locale is Spanish
 - Proper date distributions for time-series facts
 - Realistic category names (not "Category A")
 
 **Verify**: Check row counts and FK integrity for each generated file.
 
-### Phase 4 — Review Data
+### Phase 5 — Review Data
 
 > **Stop and ask the user.** Show samples before uploading.
 
@@ -87,10 +100,11 @@ For each generated table, show:
 - First 5 rows
 - Column types
 - FK integrity check results
+- If dirty data was applied: summary of contamination types and counts per table
 
 **Wait for user approval** before uploading.
 
-### Phase 5 — Upload to Fabric
+### Phase 6 — Upload to Fabric
 
 > **Stop and ask the user.** Present upload options.
 
@@ -121,7 +135,7 @@ Do NOT improvise or create notebooks manually. Use only the script commands docu
 
 If any step fails, stop and report the error.
 
-### Phase 6 — Verify & Cleanup
+### Phase 7 — Verify & Cleanup
 
 > **Stop and ask the user.** Confirm upload success.
 
