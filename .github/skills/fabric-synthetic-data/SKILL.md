@@ -40,6 +40,20 @@ The agent should ask the user what domain they want. Common domains and their ta
 | flights | fact | flight_id | airline_id, aircraft_id, origin_airport_id, dest_airport_id, departure_date, arrival_date, status, delay_minutes |
 | bookings | fact | booking_id | passenger_id, flight_id, booking_date, seat, class, price |
 
+### Citizen Incidents (Smart City / Municipal)
+| Table | Type | Key Columns | Sample Columns |
+|-------|------|-------------|----------------|
+| citizens | dim | citizen_id | name, dni, email, phone, birth_date, address, city, postal_code, registration_date |
+| streets | dim | street_id | street_name, street_type, district, neighborhood, postal_code, city, latitude, longitude |
+| incident_types | dim | incident_type_id | name, category, default_priority_id, sla_hours |
+| priorities | dim | priority_id | name, level, max_resolution_hours, color |
+| statuses | dim | status_id | name, is_final, sort_order |
+| departments | dim | department_id | name, manager_name, phone, email |
+| technicians | dim | technician_id | name, dni, department_id, role, hire_date, phone |
+| dates | dim | date_id | date, year, quarter, month, month_name, day, day_of_week, is_weekend, is_holiday |
+| incidents | fact | incident_id | citizen_id, street_id, incident_type_id, priority_id, status_id, department_id, assigned_technician_id, report_date_id, resolution_date_id, description, latitude, longitude, channel, resolution_time_hours, citizen_satisfaction, cost |
+| incident_updates | fact | update_id | incident_id, technician_id, update_date_id, previous_status_id, new_status_id, comment |
+
 ### Custom
 The user describes their tables and the agent designs the schema.
 
