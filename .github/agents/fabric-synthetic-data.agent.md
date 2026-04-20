@@ -25,6 +25,8 @@ Always activate with `source .venv/bin/activate` before any `python` call. Insta
 - DO NOT call the Fabric REST API directly — use the script documented in the skill.
 - ALWAYS generate dimensions before facts so FK values are valid.
 - ALWAYS use `faker` with the appropriate locale for realistic names, emails, etc.
+- After upload, ALWAYS offer the optional real-time streaming notebook (Phase 8). Never skip Phase 8 silently.
+- NEVER auto-run the real-time streaming notebook — only deploy it.
 
 ## Workflow
 
@@ -53,8 +55,15 @@ Based on the requirements, design the full schema:
 2. Map all relationships: FK → PK
 3. Define value ranges for numeric columns
 4. Define category lists for categorical columns
+5. **Apply the skill's "Real-Time-Friendly Schema Design" rules** even if the user
+   hasn't asked for a real-time notebook yet — so Phase 8 stays frictionless. At
+   minimum: ensure at least one fact is a stream-able event, tag each fact column
+   as `(key)` / `(FK → dim)` / `(creation)` / `(post-event)` / `(enum: ...)` /
+   `(range: min..max)`, keep stream-able dims under 50k rows, and include an
+   "initial" status in any `statuses` dimension.
 
-Present the schema to the user as a clear table. Include the FK→PK mappings.
+Present the schema to the user as a clear table. Include the FK→PK mappings and the
+per-column tags from rule 5.
 
 **Wait for user confirmation.** The user may add/remove columns or change types.
 
@@ -143,6 +152,74 @@ After all tables are uploaded:
 
 1. **Verify**: Use MCP `onelake_list_tables` (params: `workspace-id`, `item-id`, `namespace: "dbo"`) to confirm all tables appear in the lakehouse. The script's `list-tables` command does NOT work on schemas-enabled lakehouses.
 2. **Cleanup** (optional): Ask the user **once** if they want to keep or delete the generated files (both the OneLake Parquet files in `Files/synthetic_data/` and the local files in `./synthetic_data/`). Do not ask two separate questions — one answer applies to both.
+
+### Phase 8 — Optional Real-Time Streaming Notebook
+
+> **Stop and ask the user.** Offer the real-time streaming option.
+
+Once the static dataset is in the lakehouse, ask the user:
+
+> Do you also want to deploy a **real-time synthetic data notebook** that continuously
+> emits events matching this schema to a Fabric Eventstream? (yes / no)
+
+If the user says **no**, end the session with a summary.
+
+If the user says **yes**, follow this sub-flow. All behavior, placeholders, and rules
+are documented in the skill's "Real-Time Streaming (Optional Follow-Up)" section — do
+not improvise.
+
+**8.1 — Gather streaming parameters.** Ask the user:
+
+1. **Fact table to stream** — if there is more than one fact table in the schema, let
+   the user pick one. Only one fact table per notebook.
+2. **Eventstream connection string** — the Event Hub–compatible connection string from
+   the Fabric Eventstream custom endpoint.
+3. **Event hub name** — the entity path shown in the same panel.
+4. **Duration in minutes** — how long the notebook should stream (default: 10).
+5. **Events per second** — emission rate (default: 5; cap around 50).
+6. **Batch size** — events per Event Hub batch (default: 20).
+
+**8.2 — Fill the template.** Copy `.github/skills/fabric-synthetic-data/notebooks/realtime_stream.ipynb`
+to `./synthetic_data/{LAKEHOUSE_NAME}/{TIMESTAMP}/realtime_stream.ipynb` and replace
+all placeholders:
+
+- User-supplied: `{{EVENTSTREAM_CONNECTION_STRING}}`, `{{EVENTSTREAM_ENTITY_PATH}}`,
+  `{{DURATION_MINUTES}}`, `{{EVENTS_PER_SECOND}}`, `{{BATCH_SIZE}}`.
+- Agent-supplied: `{{FACT_TABLE_NAME}}`, `{{LAKEHOUSE_NAME}}`,
+  `{{DIMENSION_TABLES}}` (Python list literal of the dim tables whose PKs are
+  referenced by this fact), `{{PK_COLUMN}}` (the fact's PK column name).
+
+**8.3 — Generate `{{RECORD_GENERATOR_BODY}}`.** For every column of the fact table
+**except** the PK and `event_timestamp`, emit one `"column": value,` entry using the
+rules in the skill:
+
+- FK to a dim → `random.choice(dim_cache["<dim_table>"])["<fk_column>"]`
+- Numeric amount → `round(random.uniform(low, high), 2)` with realistic ranges from Phase 2
+- Categorical string → `random.choice([...])` with the same values used in the static data
+- Timestamps inside the event → derived from `datetime.now(timezone.utc)` with small offsets
+- Reuse the realistic value ranges and category lists already defined in Phase 2
+
+Indent each entry with 8 spaces so it lines up inside the `event = { ... }` dict.
+
+**8.4 — Review the filled notebook.**
+
+> **Stop and ask the user.** Show the filled config cell and the `generate_event`
+> function body. Confirm placeholders are all resolved (no `{{...}}` left) before
+> deploying. Ask for approval.
+
+**8.5 — Deploy the notebook.** Use the existing script:
+
+```bash
+python .github/skills/fabric-synthetic-data/scripts/fabric_synthetic_data.py \
+  deploy-notebook <workspace_id> <lakehouse_id> <notebook_name> <ipynb_path>
+```
+
+Suggest a notebook name like `realtime_stream_{fact_table}`.
+
+**8.6 — Do NOT auto-run.** The user usually wants to wire up Eventstream consumers
+(KQL DB, Activator, Power BI) before events start flowing. Report the notebook id
+and tell the user they can run it from Fabric whenever they're ready; it will stop
+automatically after `DURATION_MINUTES`.
 
 ## Spanish Locale Rules
 
